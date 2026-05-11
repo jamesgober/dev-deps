@@ -1,0 +1,47 @@
+[package]
+name = "dev-deps"
+version = "0.9.0"
+edition = "2021"
+rust-version = "1.85"
+readme = "README.md"
+license = "Apache-2.0"
+
+authors = [
+    "James Gober <me@jamesgober.com>"
+]
+
+description = "Dependency health checking for Rust. Unused, outdated, policy-violating deps. Wraps cargo-udeps and cargo-outdated. Part of the dev-* verification suite."
+
+keywords = [
+    "dependencies",
+    "outdated",
+    "unused",
+    "verification",
+    "ai-tools"
+]
+
+categories = [
+    "development-tools",
+    "development-tools::testing",
+    "development-tools::cargo-plugins"
+]
+
+documentation = "https://docs.rs/dev-deps"
+repository = "https://github.com/jamesgober/dev-deps"
+homepage = "https://github.com/jamesgober/dev-deps"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+dev-report = { version = "0.9", path = "../dev-report" }
+
+[dev-dependencies]
+
+[features]
+default = []
+
+[profile.release]
+opt-level = 3
+lto = "thin"
