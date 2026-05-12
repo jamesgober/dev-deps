@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-12
+
+Documentation and SEO pass. No code changes.
+
+### Changed
+
+- README header standardized: Rust logo image, MSRV badge between CI and docs.rs (was at the end of the badge list, lowercase label), copyright block at bottom.
+- Subtitle now reads `DEPENDENCY HYGIENE FOR RUST CRATES` (was `DEPENDENCY HEALTH FOR RUST`). `Hygiene` is closer to how developers describe this work; `crates` narrows the audience.
+- Tagline rewritten to lead with what the crate detects (unused, outdated, major-version-lag) and the wrapped tools.
+- `## The dev-* suite` retitled to `The dev-* collection` and expanded with the full 14-crate map.
+- `Cargo.toml` description rewritten: explicit about what's detected and what tools are wrapped.
+- `Cargo.toml` keywords retuned: dropped `verification` and `ai-tools`, added `udeps` and `ci` for crates.io search.
+
+### Added
+
+- "Part of the `dev-*` verification collection" block on the README, under the intro, linking the umbrella `dev-tools` crate.
+
+[0.9.1]: https://github.com/jamesgober/dev-deps/releases/tag/v0.9.1
+
 ## [0.9.0] - 2026-05-12
 
 Foundation release. Replaces the `0.1.0` name-claim with full
