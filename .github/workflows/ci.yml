@@ -106,9 +106,13 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-udeps
-        uses: taiki-e/install-action@cargo-udeps
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-udeps
       - name: Install cargo-outdated
-        uses: taiki-e/install-action@cargo-outdated
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-outdated
       - name: Verify both tools installed
         run: |
           cargo +nightly udeps --version
