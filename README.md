@@ -9,7 +9,7 @@
     <a href="https://crates.io/crates/dev-deps"><img alt="crates.io" src="https://img.shields.io/crates/v/dev-deps.svg"></a>
     <a href="https://crates.io/crates/dev-deps"><img alt="downloads" src="https://img.shields.io/crates/d/dev-deps.svg"></a>
     <a href="https://github.com/jamesgober/dev-deps/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jamesgober/dev-deps/actions/workflows/ci.yml/badge.svg"></a>
-    <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.85%2B-blue.svg?style=flat-square" title="Rust Version">
+    <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.75%2B-blue.svg?style=flat-square" title="Rust Version">
     <a href="https://docs.rs/dev-deps"><img alt="docs.rs" src="https://docs.rs/dev-deps/badge.svg"></a>
 </p>
 
