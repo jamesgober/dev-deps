@@ -68,11 +68,16 @@ println!("{}", report.to_json()?);
 
 ## Scopes
 
-| Scope                | What it runs                                      |
-|----------------------|----------------------------------------------------|
-| `DepScope::Unused`   | `cargo +nightly udeps --output json` only.        |
-| `DepScope::Outdated` | `cargo outdated --format json` only.              |
-| `DepScope::All`      | Both.                                              |
+| Scope                | What it runs                                                       |
+|----------------------|--------------------------------------------------------------------|
+| `DepScope::Unused`   | `cargo +nightly udeps --output json --all-targets` only.           |
+| `DepScope::Outdated` | `cargo outdated --format json --root-deps-only` only.              |
+| `DepScope::All`      | Both.                                                              |
+
+`--all-targets` makes `cargo-udeps` build tests, examples and benches
+too, so unused dev-dependencies are reported and a dependency used only
+by a test is not flagged. `--root-deps-only` limits `cargo-outdated` to
+the dependencies declared in `Cargo.toml`.
 
 ## Severity policy
 
@@ -82,6 +87,11 @@ println!("{}", report.to_json()?);
 | Outdated, 0–1 major behind                    | `Info`                 |
 | Outdated, 2+ majors behind                    | `Warning`              |
 | Outdated, ≥ `escalate_at_majors` behind       | `Error` (failing)      |
+
+"Majors behind" counts semver-incompatible releases using Cargo's
+rule that the left-most non-zero version component is the breaking
+one: `1.4.0 -> 3.0.0` is 2 behind, `0.7.3 -> 0.10.3` is 3 behind, and
+`0.9.2 -> 0.9.5` is 0 behind.
 
 By default, every finding is a `Warn`-verdict check — dependency
 health is advisory, not blocking. Call `.escalate_at_majors(n)` on the
@@ -98,7 +108,7 @@ let check = DepCheck::new("my-crate", "0.1.0")
     .scope(DepScope::All)
     .workspace()                          // pass --workspace to both tools
     .exclude("vendored-crate")            // skip a whole crate
-    .allow("legacy-shim")                 // skip a single advisory ID / crate name
+    .allow("legacy-shim")                 // skip findings for one crate name
     .allow_all(["a", "b"])
     .severity_threshold(Severity::Warning) // drop Info findings
     .escalate_at_majors(3);                // fail when 3+ majors behind
@@ -230,7 +240,7 @@ escalation, allow-listing, and severity gating. Production use is fine;
 
 ## Minimum supported Rust version
 
-`1.85` — pinned in `Cargo.toml` via `rust-version` and verified by
+`1.75` — pinned in `Cargo.toml` via `rust-version` and verified by
 the MSRV job in CI.
 
 ## License

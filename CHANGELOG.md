@@ -7,24 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.2] - 2026-05-18
+## [0.9.2] - 2026-10-09
 
-MSRV rollback to Rust 1.75. Backed off from 1.85 after `dev-fixtures`
-swapped `tempfile` → `mod-tempdir` 1.0 in its own 0.9.5 release,
-eliminating the `getrandom 0.4.2 → edition2024` chain that was the
-sole reason the dev-* collection sat at 1.85. No code changes here;
-this crate's own runtime dependencies have always been
-1.75-compatible.
+Tool-invocation and version-comparison fixes from a review pass, plus
+the MSRV rollback to Rust 1.75. The rollback follows `dev-fixtures`
+0.9.5 swapping `tempfile` for `mod-tempdir` 1.0, which removed the
+`getrandom 0.4.2 -> edition2024` chain that held the dev-* collection
+at 1.85.
+
+### Added
+
+- `VERSION` constant with the crate version as compiled, so tools that
+  bundle this crate can report what is actually linked.
+
+### Fixed
+
+- `cargo outdated` without `--workspace` listed every transitive
+  dependency as a `parent->child` row, mostly with a latest version of
+  `Removed`, and each became a junk finding. `--root-deps-only` is now
+  always passed, and rows whose version fields are not versions
+  (`Removed`, `---`) or that name a transitive path are skipped.
+- `major_behind` ignored Cargo's rule for 0.x versions, so
+  `rand 0.7.3 -> 0.10.3` counted as 0 majors behind (`Info`) and could
+  never escalate. The left-most non-zero component is now the breaking
+  one, so that example is 3 behind. Build metadata such as `+wasi` is
+  parsed.
+- `cargo udeps` ran without `--all-targets`, so unused
+  dev-dependencies were never found and a dependency used only by tests
+  was flagged as unused. The flag is now passed.
+- The parse-error preview sliced at byte 200 and could panic inside a
+  multi-byte character.
 
 ### Changed
 
-- `rust-version` lowered from `1.85` to `1.75` in `Cargo.toml`.
-- MSRV badge in README updated from `1.85+` to `1.75+`.
+- When workspace members pin different versions of one crate, the
+  outdated finding kept is the one furthest behind (it was arbitrary).
+- Error messages name the tool that failed and its exit status.
+- The unused `tempfile` dev-dependency is gone; it kept
+  `cargo +1.75 test` from resolving.
+- `rust-version` lowered from `1.85` to `1.75`. CI's MSRV job now
+  builds on 1.75 against an MSRV-compatible lockfile; it was still
+  pinned to 1.85.
 
-### Notes
+### Documentation
 
-- No code change. No API change. No new dependencies.
-- Library, examples, and tests all build clean on Rust 1.75 (verified).
+- README Scopes table lists the real tool flags, explains how "majors
+  behind" is counted, and corrects the `allow` comment; MSRV section
+  says 1.75.
+- `docs/API.md`: stale `kind: String` and missing fields fixed, builder
+  methods added. `OutdatedDep::current` says the version comes from
+  `Cargo.lock`.
 
 [0.9.2]: https://github.com/jamesgober/dev-deps/releases/tag/v0.9.2
 

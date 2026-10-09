@@ -10,6 +10,7 @@
   - [`DepCheck::new`](#depchecknew)
   - [`DepCheck::scope`](#depcheckscope)
   - [`DepCheck::dep_scope`](#depcheckdep_scope)
+  - [Other builder methods](#other-builder-methods)
   - [`DepCheck::execute`](#depcheckexecute)
 - [`UnusedDep`](#unuseddep)
 - [`OutdatedDep`](#outdateddep)
@@ -84,13 +85,26 @@ pub fn dep_scope(&self) -> DepScope
 
 Return the configured scope.
 
+### Other builder methods
+
+| Method                          | Effect                                                         |
+|---------------------------------|----------------------------------------------------------------|
+| `in_dir(dir)`                   | Run both tools from `dir` instead of the current directory.    |
+| `workspace()`                   | Pass `--workspace` to both tools.                              |
+| `exclude(name)`                 | Pass `--exclude <name>` to `cargo outdated`; drop unused findings for `name`. |
+| `allow(name)` / `allow_all(names)` | Drop findings for these crate names.                        |
+| `severity_threshold(sev)`       | Drop findings below `sev`.                                     |
+| `escalate_at_majors(n)`         | Outdated findings at least `n` majors behind become `Error` / failing. |
+
 ### `DepCheck::execute`
 
 ```rust
 pub fn execute(&self) -> Result<DepResult, DepError>
 ```
 
-Run the configured checks via `cargo-udeps` and/or `cargo-outdated`.
+Run the configured checks via `cargo +nightly udeps --output json --all-targets`
+and/or `cargo outdated --format json --root-deps-only` (plus `--workspace`
+when `workspace()` was called).
 
 ---
 
@@ -99,9 +113,12 @@ Run the configured checks via `cargo-udeps` and/or `cargo-outdated`.
 ```rust
 pub struct UnusedDep {
     pub crate_name: String,
-    pub kind: String,    // "dependencies" | "dev-dependencies" | "build-dependencies"
+    pub kind: DepKind,   // Normal | Development | Build
 }
 ```
+
+`DepKind::as_str()` returns the `Cargo.toml` section name
+(`"dependencies"`, `"dev-dependencies"`, `"build-dependencies"`).
 
 A declared dependency that is never imported in the relevant kind's
 source set.
@@ -116,10 +133,15 @@ pub struct OutdatedDep {
     pub current: String,
     pub latest: String,
     pub major_behind: u32,
+    pub kind: Option<DepKind>,
 }
 ```
 
 A dependency where a newer version exists on the registry.
+`major_behind` counts semver-incompatible releases using Cargo's rule
+(the left-most non-zero component is the breaking one), so
+`0.7.3 -> 0.10.3` is 3 behind. `severity(escalate_at)` maps it to
+`Info` (0-1), `Warning` (2+), or `Error` (at least `escalate_at`).
 
 ---
 
@@ -132,6 +154,7 @@ pub struct DepResult {
     pub scope: DepScope,
     pub unused: Vec<UnusedDep>,
     pub outdated: Vec<OutdatedDep>,
+    pub escalate_at_majors: Option<u32>,
 }
 ```
 
@@ -144,6 +167,7 @@ pub struct DepResult {
 | `scope`    | `DepScope`          | Scope that produced this result.       |
 | `unused`   | `Vec<UnusedDep>`    | Unused dependencies found.             |
 | `outdated` | `Vec<OutdatedDep>`  | Outdated dependencies found.           |
+| `escalate_at_majors` | `Option<u32>` | Escalation threshold used for severities. |
 
 ### `DepResult::total_findings`
 

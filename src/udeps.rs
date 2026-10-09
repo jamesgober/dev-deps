@@ -25,7 +25,10 @@ use crate::{DepError, DepKind, UnusedDep};
 pub(crate) fn run(workdir: Option<&Path>, workspace: bool) -> Result<Vec<UnusedDep>, DepError> {
     detect()?;
     let mut cmd = Command::new("cargo");
-    cmd.args(["+nightly", "udeps", "--output", "json"]);
+    // `--all-targets`: without it cargo-udeps only builds lib + bins, so
+    // dev-dependencies are never checked and a normal dependency used
+    // only by tests, examples or benches is reported as unused.
+    cmd.args(["+nightly", "udeps", "--output", "json", "--all-targets"]);
     if workspace {
         cmd.arg("--workspace");
     }
@@ -34,13 +37,18 @@ pub(crate) fn run(workdir: Option<&Path>, workspace: bool) -> Result<Vec<UnusedD
     }
     let output = cmd
         .output()
-        .map_err(|e| DepError::SubprocessFailed(e.to_string()))?;
+        .map_err(|e| DepError::SubprocessFailed(format!("could not spawn cargo udeps: {e}")))?;
     // cargo-udeps exits non-zero when it finds unused deps — that's the
-    // success path. Empty stdout + non-zero is the real failure signal.
+    // success path. Empty stdout + non-zero is the real failure signal
+    // (e.g. the project does not compile).
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if stdout.trim().is_empty() && !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(DepError::SubprocessFailed(stderr));
+        return Err(DepError::SubprocessFailed(format!(
+            "cargo udeps exited with {}: {}",
+            output.status,
+            stderr.trim()
+        )));
     }
     parse(&stdout)
 }
@@ -112,17 +120,58 @@ pub(crate) fn parse(json: &str) -> Result<Vec<UnusedDep>, DepError> {
     Ok(findings)
 }
 
+/// At most the first 200 bytes of `s`, cut on a char boundary.
 fn first_200(s: &str) -> &str {
     if s.len() <= 200 {
-        s
-    } else {
-        &s[..200]
+        return s;
     }
+    let mut end = 200;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real `cargo +nightly udeps --output json --all-targets --workspace`
+    /// output (cargo-udeps 0.1.61) on Windows.
+    const REAL_WORKSPACE: &str = r#"{"success":false,"unused_deps":{"app 0.1.0 (path+file:///C:/Users/me/ws/app)":{"manifest_path":"C:\\Users\\me\\ws\\app\\Cargo.toml","normal":["itoa"],"development":["memchr"],"build":[]},"lib2 0.1.0 (path+file:///C:/Users/me/ws/lib2)":{"manifest_path":"C:\\Users\\me\\ws\\lib2\\Cargo.toml","normal":["bitflags","smallvec"],"development":[],"build":[]}},"note":"Note: They might be false-positive.\n      For example, `cargo-udeps` cannot detect usage of crates that are only used in doc-tests.\n      To ignore some dependencies, write `package.metadata.cargo-udeps.ignore` in Cargo.toml.\n"}"#;
+
+    #[test]
+    fn parses_real_workspace_output() {
+        let mut findings: Vec<(String, DepKind)> = parse(REAL_WORKSPACE)
+            .unwrap()
+            .into_iter()
+            .map(|u| (u.crate_name, u.kind))
+            .collect();
+        findings.sort();
+        assert_eq!(
+            findings,
+            vec![
+                ("bitflags".to_string(), DepKind::Normal),
+                ("itoa".to_string(), DepKind::Normal),
+                ("memchr".to_string(), DepKind::Development),
+                ("smallvec".to_string(), DepKind::Normal),
+            ]
+        );
+    }
+
+    #[test]
+    fn clean_run_yields_no_findings() {
+        let json = r#"{"success":true,"unused_deps":{},"note":null}"#;
+        assert!(parse(json).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_error_preview_does_not_split_multibyte_chars() {
+        let mut s = "x".repeat(199);
+        s.push_str("ééé");
+        assert_eq!(first_200(&s).len(), 199);
+        assert!(matches!(parse(&s), Err(DepError::ParseError(_))));
+    }
 
     #[test]
     fn empty_input_yields_no_findings() {

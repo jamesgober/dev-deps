@@ -37,6 +37,18 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+/// Version of this crate as compiled, taken from its `Cargo.toml`.
+///
+/// Lets tools that bundle this crate, such as the `dev` CLI in
+/// `dev-tools`, report the version that is actually linked.
+///
+/// # Example
+///
+/// ```
+/// assert!(!dev_deps::VERSION.is_empty());
+/// ```
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use std::path::PathBuf;
 
 use dev_report::{CheckResult, Evidence, Report, Severity};
@@ -227,9 +239,27 @@ impl DepCheck {
 
     /// Execute the check.
     ///
-    /// Each enabled tool is invoked as a subprocess. Findings are
-    /// filtered through the allow-list and severity threshold, then
-    /// sorted by `crate_name` for determinism.
+    /// Each enabled tool is invoked as a subprocess:
+    /// `cargo +nightly udeps --output json --all-targets` and
+    /// `cargo outdated --format json --root-deps-only` (plus
+    /// `--workspace` when [`workspace`](Self::workspace) is set).
+    /// Findings are filtered through the allow-list and severity
+    /// threshold, sorted by `crate_name` for determinism, and
+    /// deduplicated: unused findings by `(crate_name, kind)`, outdated
+    /// findings by `crate_name`, keeping the entry furthest behind when
+    /// workspace members pin different versions.
+    ///
+    /// # Errors
+    ///
+    /// - [`DepError::UdepsToolNotInstalled`] /
+    ///   [`DepError::OutdatedToolNotInstalled`] when a tool the scope
+    ///   needs is missing.
+    /// - [`DepError::SubprocessFailed`] when a tool could not run to
+    ///   completion (for example the project does not compile, or there
+    ///   is no `Cargo.toml`). Finding unused or outdated dependencies is
+    ///   not an error.
+    /// - [`DepError::ParseError`] when a tool's output is not the
+    ///   expected JSON.
     pub fn execute(&self) -> Result<DepResult, DepError> {
         let mut unused: Vec<UnusedDep> = Vec::new();
         let mut outdated: Vec<OutdatedDep> = Vec::new();
@@ -240,7 +270,20 @@ impl DepCheck {
         if self.scope.runs_outdated() {
             outdated = outdated::run(self.workdir.as_deref(), self.workspace, &self.excludes)?;
         }
+        self.finalize(&mut unused, &mut outdated);
 
+        Ok(DepResult {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            scope: self.scope,
+            unused,
+            outdated,
+            escalate_at_majors: self.escalate_at_majors,
+        })
+    }
+
+    /// Allow-list, exclude, severity filter, sort and dedup.
+    fn finalize(&self, unused: &mut Vec<UnusedDep>, outdated: &mut Vec<OutdatedDep>) {
         if !self.allow_list.is_empty() {
             unused.retain(|u| !self.allow_list.iter().any(|n| n == &u.crate_name));
             outdated.retain(|o| !self.allow_list.iter().any(|n| n == &o.crate_name));
@@ -256,18 +299,16 @@ impl DepCheck {
         }
 
         unused.sort_by(|a, b| a.crate_name.cmp(&b.crate_name).then(a.kind.cmp(&b.kind)));
-        outdated.sort_by(|a, b| a.crate_name.cmp(&b.crate_name));
+        // Workspace members can pin different versions of the same crate.
+        // Keep one finding per crate (check names stay unique), and make
+        // it the one furthest behind.
+        outdated.sort_by(|a, b| {
+            a.crate_name
+                .cmp(&b.crate_name)
+                .then_with(|| b.major_behind.cmp(&a.major_behind))
+        });
         unused.dedup_by(|a, b| a.crate_name == b.crate_name && a.kind == b.kind);
-        outdated.dedup_by(|a, b| a.crate_name == b.crate_name);
-
-        Ok(DepResult {
-            name: self.name.clone(),
-            version: self.version.clone(),
-            scope: self.scope,
-            unused,
-            outdated,
-            escalate_at_majors: self.escalate_at_majors,
-        })
+        outdated.dedup_by(|later, kept| later.crate_name == kept.crate_name);
     }
 }
 
@@ -296,11 +337,15 @@ impl UnusedDep {
 pub struct OutdatedDep {
     /// Crate name.
     pub crate_name: String,
-    /// Current version pinned in `Cargo.toml`.
+    /// Version currently in use, as resolved in `Cargo.lock`
+    /// (cargo-outdated's `project` column).
     pub current: String,
     /// Latest available version on the registry.
     pub latest: String,
-    /// How many major versions behind the current pin is.
+    /// How many semver-incompatible releases behind the current pin is,
+    /// using Cargo's rule that the left-most non-zero component is the
+    /// breaking one: `1.4.0 -> 3.0.0` is 2, `0.7.3 -> 0.10.3` is 3,
+    /// `0.9.2 -> 0.9.5` is 0.
     pub major_behind: u32,
     /// Where the dependency is declared, when the underlying tool exposed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -633,6 +678,60 @@ mod tests {
         assert_eq!(c.dep_scope(), DepScope::Outdated);
         assert_eq!(c.subject(), "x");
         assert_eq!(c.subject_version(), "0.1.0");
+    }
+
+    #[test]
+    fn finalize_keeps_furthest_behind_duplicate() {
+        let check = DepCheck::new("x", "0.1.0");
+        let mut u = vec![
+            unused("b", DepKind::Normal),
+            unused("a", DepKind::Development),
+            unused("b", DepKind::Normal),
+            unused("b", DepKind::Development),
+        ];
+        let mut o = vec![
+            outdated("rand", "0.9.0", "0.10.3", 1),
+            outdated("rand", "0.7.3", "0.10.3", 3),
+            outdated("bitflags", "1.3.2", "2.13.2", 1),
+        ];
+        check.finalize(&mut u, &mut o);
+        let u: Vec<(&str, DepKind)> = u.iter().map(|x| (x.crate_name.as_str(), x.kind)).collect();
+        assert_eq!(
+            u,
+            [
+                ("a", DepKind::Development),
+                ("b", DepKind::Normal),
+                ("b", DepKind::Development)
+            ]
+        );
+        assert_eq!(o.len(), 2);
+        assert_eq!(o[0].crate_name, "bitflags");
+        assert_eq!(o[1].crate_name, "rand");
+        assert_eq!(o[1].current, "0.7.3");
+        assert_eq!(o[1].major_behind, 3);
+    }
+
+    #[test]
+    fn finalize_applies_allow_exclude_and_threshold() {
+        let check = DepCheck::new("x", "0.1.0")
+            .allow("allowed")
+            .exclude("excluded")
+            .severity_threshold(Severity::Warning);
+        let mut u = vec![
+            unused("allowed", DepKind::Normal),
+            unused("excluded", DepKind::Normal),
+            unused("kept", DepKind::Normal),
+        ];
+        let mut o = vec![
+            outdated("allowed", "1.0.0", "4.0.0", 3),
+            outdated("info-only", "1.0.0", "2.0.0", 1),
+            outdated("warned", "1.0.0", "3.0.0", 2),
+        ];
+        check.finalize(&mut u, &mut o);
+        assert_eq!(u.len(), 1);
+        assert_eq!(u[0].crate_name, "kept");
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].crate_name, "warned");
     }
 
     #[test]
