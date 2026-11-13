@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-12
+
+### Changed
+
+- Depends on `dev-report` 0.9.9 from crates.io instead of a sibling
+  checkout, so a fresh clone builds and CI tests against the released
+  version.
+
+[0.9.3]: https://github.com/jamesgober/dev-deps/releases/tag/v0.9.3
+
 ## [0.9.2] - 2026-10-09
 
 Tool-invocation and version-comparison fixes from a review pass, plus
